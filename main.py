@@ -10,6 +10,7 @@ def parse_args():
     parser.add_argument('--phase', type=str, default='train', help='[train / test]')
     parser.add_argument('--light', type=str2bool, default=False, help='[U-GAT-IT full version / U-GAT-IT light version]')
     parser.add_argument('--dataset', type=str, default='YOUR_DATASET_NAME', help='dataset_name')
+    parser.add_argument('--dataroot', type=str, default='dataset', help='Root directory containing dataset folders')
 
     parser.add_argument('--iteration', type=int, default=1000000, help='The number of training iterations')
     parser.add_argument('--batch_size', type=int, default=1, help='The size of batch size')
@@ -29,6 +30,7 @@ def parse_args():
     parser.add_argument('--n_dis', type=int, default=6, help='The number of discriminator layer')
 
     parser.add_argument('--img_size', type=int, default=256, help='The size of image')
+    parser.add_argument('--load_size', type=int, default=0, help='Resize images to this size before cropping during training. 0 = use original resolution.')
     parser.add_argument('--img_ch', type=int, default=3, help='The size of image channel')
 
     parser.add_argument('--result_dir', type=str, default='results', help='Directory name to save the results')

@@ -17,6 +17,7 @@ class UGATIT(object) :
 
         self.result_dir = args.result_dir
         self.dataset = args.dataset
+        self.dataroot = args.dataroot
 
         self.iteration = args.iteration
         self.decay_flag = args.decay_flag
@@ -42,6 +43,7 @@ class UGATIT(object) :
         self.n_dis = args.n_dis
 
         self.img_size = args.img_size
+        self.load_size = args.load_size
         self.img_ch = args.img_ch
 
         self.device = args.device
@@ -84,23 +86,39 @@ class UGATIT(object) :
 
     def build_model(self):
         """ DataLoader """
-        train_transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.Resize((self.img_size + 30, self.img_size+30)),
-            transforms.RandomCrop(self.img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-        ])
-        test_transform = transforms.Compose([
-            transforms.Resize((self.img_size, self.img_size)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-        ])
+        #train_transform = transforms.Compose([
+        #    transforms.RandomHorizontalFlip(),
+        #    transforms.Resize((self.img_size + 30, self.img_size+30)),
+        #    transforms.RandomCrop(self.img_size),
+        #    transforms.ToTensor(),
+        #    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        #])
+        #test_transform = transforms.Compose([
+        #    transforms.Resize((self.img_size, self.img_size)),
+        #    transforms.ToTensor(),
+        #    transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        #])
 
-        self.trainA = ImageFolder(os.path.join('dataset', self.dataset, 'trainA'), train_transform)
-        self.trainB = ImageFolder(os.path.join('dataset', self.dataset, 'trainB'), train_transform)
-        self.testA = ImageFolder(os.path.join('dataset', self.dataset, 'testA'), test_transform)
-        self.testB = ImageFolder(os.path.join('dataset', self.dataset, 'testB'), test_transform)
+        train_t = [transforms.RandomHorizontalFlip()]
+        if self.load_size > 0:
+            train_t.append(transforms.Resize((self.load_size, self.load_size)))
+        else:
+            train_t.append(transforms.Resize((self.img_size + 30, self.img_size + 30)))
+        train_t += [transforms.RandomCrop(self.img_size), transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))]
+        train_transform = transforms.Compose(train_t)
+
+        test_t = []
+        if self.load_size > 0:
+            test_t.append(transforms.Resize((self.load_size, self.load_size)))
+        else:
+            test_t.append(transforms.Resize((self.img_size, self.img_size)))
+        test_t += [transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))]
+        test_transform = transforms.Compose(test_t)
+        
+        self.trainA = ImageFolder(os.path.join(self.dataroot, self.dataset, 'trainA'), train_transform)
+        self.trainB = ImageFolder(os.path.join(self.dataroot, self.dataset, 'trainB'), train_transform)
+        self.testA = ImageFolder(os.path.join(self.dataroot, self.dataset, 'testA'), test_transform)
+        self.testB = ImageFolder(os.path.join(self.dataroot, self.dataset, 'testB'), test_transform)
         self.trainA_loader = DataLoader(self.trainA, batch_size=self.batch_size, shuffle=True)
         self.trainB_loader = DataLoader(self.trainB, batch_size=self.batch_size, shuffle=True)
         self.testA_loader = DataLoader(self.testA, batch_size=1, shuffle=False)
@@ -150,16 +168,16 @@ class UGATIT(object) :
                 self.D_optim.param_groups[0]['lr'] -= (self.lr / (self.iteration // 2))
 
             try:
-                real_A, _ = trainA_iter.next()
+                real_A, _ = next(trainA_iter)
             except:
                 trainA_iter = iter(self.trainA_loader)
-                real_A, _ = trainA_iter.next()
+                real_A, _ = next(trainA_iter)
 
             try:
-                real_B, _ = trainB_iter.next()
+                real_B, _ = next(trainB_iter)
             except:
                 trainB_iter = iter(self.trainB_loader)
-                real_B, _ = trainB_iter.next()
+                real_B, _ = next(trainB_iter)
 
             real_A, real_B = real_A.to(self.device), real_B.to(self.device)
 
@@ -251,16 +269,16 @@ class UGATIT(object) :
                 self.genA2B.eval(), self.genB2A.eval(), self.disGA.eval(), self.disGB.eval(), self.disLA.eval(), self.disLB.eval()
                 for _ in range(train_sample_num):
                     try:
-                        real_A, _ = trainA_iter.next()
+                        real_A, _ = next(trainA_iter)
                     except:
                         trainA_iter = iter(self.trainA_loader)
-                        real_A, _ = trainA_iter.next()
+                        real_A, _ = next(trainA_iter)
 
                     try:
-                        real_B, _ = trainB_iter.next()
+                        real_B, _ = next(trainB_iter)
                     except:
                         trainB_iter = iter(self.trainB_loader)
-                        real_B, _ = trainB_iter.next()
+                        real_B, _ = next(trainB_iter)
                     real_A, real_B = real_A.to(self.device), real_B.to(self.device)
 
                     fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
@@ -290,16 +308,16 @@ class UGATIT(object) :
 
                 for _ in range(test_sample_num):
                     try:
-                        real_A, _ = testA_iter.next()
+                        real_A, _ = next(testA_iter)
                     except:
                         testA_iter = iter(self.testA_loader)
-                        real_A, _ = testA_iter.next()
+                        real_A, _ = next(testA_iter)
 
                     try:
-                        real_B, _ = testB_iter.next()
+                        real_B, _ = next(testB_iter)
                     except:
                         testB_iter = iter(self.testB_loader)
-                        real_B, _ = testB_iter.next()
+                        real_B, _ = next(testB_iter)
                     real_A, real_B = real_A.to(self.device), real_B.to(self.device)
 
                     fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
@@ -377,38 +395,6 @@ class UGATIT(object) :
         self.genA2B.eval(), self.genB2A.eval()
         for n, (real_A, _) in enumerate(self.testA_loader):
             real_A = real_A.to(self.device)
-
-            fake_A2B, _, fake_A2B_heatmap = self.genA2B(real_A)
-
-            fake_A2B2A, _, fake_A2B2A_heatmap = self.genB2A(fake_A2B)
-
-            fake_A2A, _, fake_A2A_heatmap = self.genB2A(real_A)
-
-            A2B = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_A[0]))),
-                                  cam(tensor2numpy(fake_A2A_heatmap[0]), self.img_size),
-                                  RGB2BGR(tensor2numpy(denorm(fake_A2A[0]))),
-                                  cam(tensor2numpy(fake_A2B_heatmap[0]), self.img_size),
-                                  RGB2BGR(tensor2numpy(denorm(fake_A2B[0]))),
-                                  cam(tensor2numpy(fake_A2B2A_heatmap[0]), self.img_size),
-                                  RGB2BGR(tensor2numpy(denorm(fake_A2B2A[0])))), 0)
-
-            cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'A2B_%d.png' % (n + 1)), A2B * 255.0)
-
-        for n, (real_B, _) in enumerate(self.testB_loader):
-            real_B = real_B.to(self.device)
-
-            fake_B2A, _, fake_B2A_heatmap = self.genB2A(real_B)
-
-            fake_B2A2B, _, fake_B2A2B_heatmap = self.genA2B(fake_B2A)
-
-            fake_B2B, _, fake_B2B_heatmap = self.genA2B(real_B)
-
-            B2A = np.concatenate((RGB2BGR(tensor2numpy(denorm(real_B[0]))),
-                                  cam(tensor2numpy(fake_B2B_heatmap[0]), self.img_size),
-                                  RGB2BGR(tensor2numpy(denorm(fake_B2B[0]))),
-                                  cam(tensor2numpy(fake_B2A_heatmap[0]), self.img_size),
-                                  RGB2BGR(tensor2numpy(denorm(fake_B2A[0]))),
-                                  cam(tensor2numpy(fake_B2A2B_heatmap[0]), self.img_size),
-                                  RGB2BGR(tensor2numpy(denorm(fake_B2A2B[0])))), 0)
-
-            cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'B2A_%d.png' % (n + 1)), B2A * 255.0)
+            fake_A2B, _, _ = self.genA2B(real_A)
+            fake_A2B_img = RGB2BGR(tensor2numpy(denorm(fake_A2B[0])))
+            cv2.imwrite(os.path.join(self.result_dir, self.dataset, 'test', 'fake_B_%04d.png' % (n + 1)), fake_A2B_img * 255.0)
