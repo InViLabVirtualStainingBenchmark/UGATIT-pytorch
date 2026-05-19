@@ -1,0 +1,67 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+
+%post
+    apt-get update -y && \
+    apt-get install -y git libgl1 libglib2.0-0 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+    # Placeholder dirs (masked by cluster /data bind at runtime; kept for convention).
+    mkdir -p /data/BCI-AB-test /data/MIST-HER2-test
+
+    pip install --no-cache-dir --upgrade pip
+
+    # UGATIT uses cv2 (utils.py, UGATIT.py) and PIL (dataset.py).
+    # scipy is a transitive dependency from the smoke-test environment.
+    pip install --no-cache-dir \
+        "opencv-python-headless==4.10.0.84" \
+        "pillow==10.4.0" \
+        "scipy==1.13.1"
+
+%labels
+    Author vsc21212
+    Model UGATIT
+    BaseImage pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+    PyTorch 2.5.1+cu121
+    Python 3.11
+    Benchmark InViLabVirtualStainingBenchmark
+
+%help
+    UGATIT (light) container for the InViLab virtual staining benchmark.
+    Python 3.11, PyTorch 2.5.1 (cu121), CUDA 12.1 runtime.
+    The cluster CUDA 12.x driver is backward compatible with this runtime.
+
+    UGATIT hardcodes testA/testB folder names in build_model(). Because
+    BCI-AB.sqsh and MIST-HER2.sqsh use valA/valB, UGATIT requires dedicated
+    sqsh archives where the inference split is named testA/testB:
+      BCI-AB-test.sqsh   -- trainA, trainB, testA, testB  (testA/B = valA/B from BCI-AB.sqsh)
+      MIST-HER2-test.sqsh -- trainA, trainB, testA, testB  (testA/B = valA/B from MIST-HER2.sqsh)
+    See train_validate_BCI.sh for one-time creation commands on the login node.
+
+    Mount path convention:
+      $VSC_SCRATCH/BCI-AB-test.sqsh  -> $VSC_SCRATCH/sqsh_mnt/ugatit/BCI-AB-test
+      $VSC_SCRATCH/MIST-HER2-test.sqsh -> $VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2-test
+
+    UGATIT args (BCI example):
+      --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit   (parent of the dataset folder)
+      --dataset  BCI-AB-test
+
+    Training (BCI, part 1 -- 500k iterations, no LR decay):
+      srun apptainer exec --nv \
+        -B $VSC_DATA:$VSC_DATA \
+        -B $VSC_SCRATCH/BCI-AB-test.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI-AB-test:image-src=/ \
+        $VSC_SCRATCH/containers/ugatit_nvidia.sif \
+        python main.py \
+          --dataset BCI-AB-test --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit \
+          --light True --img_size 512 --load_size 1024 \
+          --iteration 500000 --decay_flag False ...
+
+    Inference (BCI):
+      srun apptainer exec --nv \
+        -B $VSC_DATA:$VSC_DATA \
+        -B $VSC_SCRATCH/BCI-AB-test.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI-AB-test:image-src=/ \
+        $VSC_SCRATCH/containers/ugatit_nvidia.sif \
+        python main.py \
+          --phase test --dataset BCI-AB-test --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit \
+          --light True --img_size 512 --load_size 1024 ...

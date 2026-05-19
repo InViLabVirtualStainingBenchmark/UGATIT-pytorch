@@ -1,0 +1,135 @@
+#!/bin/bash
+#SBATCH --job-name=ugatit_train_MIST-HER2_i1M_p1
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=60G
+#SBATCH --time=24:00:00
+#SBATCH -A ap_invilab_td_thesis
+#SBATCH -p ampere_gpu
+#SBATCH --gres=gpu:1
+#SBATCH -o /data/antwerpen/212/vsc21212/projects/ugatit/logs/train_full_MIST-HER2_i1M_p1.%j.out
+#SBATCH -e /data/antwerpen/212/vsc21212/projects/ugatit/logs/train_full_MIST-HER2_i1M_p1.%j.err
+
+# train_full_MIST-HER2_i1M_part1.sh
+# Iterations 1-500,000 of UGATIT training on MIST-HER2 at 512x512 (cropped from 1024).
+# Constant LR throughout (decay_flag=False).
+#
+# This is the first half of the full 1,000,000-iteration run. The LR schedule
+# is equivalent to a single 1M-iteration run:
+#   Part 1: iters     1-500,000  constant LR     (decay_flag=False)
+#   Part 2: iters 500,001-1,000,000  linear decay (decay_flag=True, resume=True)
+#
+# DO NOT submit this manually -- use submit_MIST-HER2_i1M.sh which chains both parts.
+#
+# Set wall time above using the validate job log:
+#   (sec_per_1000iter * 500 * 1.20) / 3600 rounded up to next hour.
+#
+# Checkpoints saved at 250,000 and 500,000 iterations:
+#   $VSC_DATA/projects/ugatit/outputs/results/MIST-HER2_full_i1M/model/
+
+set -euo pipefail
+
+CONTAINER="$VSC_SCRATCH/containers/ugatit_nvidia.sif"
+REPO_DIR="$VSC_DATA/projects/ugatit/code/ugatit"
+RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/results"
+DATASET="MIST-HER2_full_i1M"
+MIST_TEST_SQSH="$VSC_SCRATCH/MIST-HER2-test.sqsh"
+MIST_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_full_i1M"
+UGATIT_DATAROOT="$VSC_SCRATCH/sqsh_mnt/ugatit"
+
+# =========================
+# MODULES
+# =========================
+
+module purge
+module load calcua/2026.1
+
+# =========================
+# PRE-FLIGHT CHECKS
+# =========================
+
+echo "=== Container ==="
+echo "  $CONTAINER"
+if [ ! -f "$CONTAINER" ]; then
+    echo "ERROR: Container not found: $CONTAINER"
+    exit 1
+fi
+
+echo ""
+echo "=== Environment ==="
+apptainer exec --nv "$CONTAINER" python -c "import torch; print('torch:', torch.__version__, '| CUDA:', torch.cuda.is_available())"
+
+echo ""
+echo "=== SquashFS check ==="
+if [ ! -f "$MIST_TEST_SQSH" ]; then
+    echo "ERROR: MIST-HER2-test.sqsh not found: $MIST_TEST_SQSH"
+    exit 1
+fi
+echo "  MIST-HER2-test.sqsh found"
+
+echo ""
+echo "=== Dataset check ==="
+mkdir -p "$MIST_TEST_MNT"
+apptainer exec \
+    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "$CONTAINER" \
+    bash -c "echo \"  trainA: \$(ls $MIST_TEST_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $MIST_TEST_MNT/trainB | wc -l) images\""
+
+mkdir -p "$RESULT_DIR"
+
+# =========================
+# GPU LOGGING
+# =========================
+
+nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used,memory.total \
+           --format=csv -l 5 \
+    > "$VSC_DATA/projects/ugatit/logs/gpu_train_full_MIST-HER2_i1M_p1.csv" & GPU_LOG_PID=$!
+
+# =========================
+# TRAINING
+# =========================
+
+cd "$REPO_DIR"
+
+echo ""
+echo "=== Starting MIST training part 1 (iterations 1-500,000, constant LR) ==="
+echo "  dataset   : $DATASET"
+echo "  dataroot  : $UGATIT_DATAROOT"
+echo "  result_dir: $RESULT_DIR"
+
+srun apptainer exec --nv \
+    -B "$VSC_DATA:$VSC_DATA" \
+    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "$CONTAINER" \
+    python main.py \
+        --phase       train \
+        --light       True \
+        --dataset     "$DATASET" \
+        --dataroot    "$UGATIT_DATAROOT" \
+        --iteration   500000 \
+        --save_freq   250000 \
+        --print_freq  500000 \
+        --decay_flag  False \
+        --resume      False \
+        --img_size    512 \
+        --load_size   1024 \
+        --batch_size  1 \
+        --result_dir  "$RESULT_DIR"
+
+# =========================
+# POST-RUN REPORT
+# =========================
+
+kill $GPU_LOG_PID
+
+echo ""
+echo "=== Post-run checkpoint check ==="
+find "$RESULT_DIR/$DATASET/model" -name "*.pt" | sort
+
+echo ""
+echo "=== GPU log tail ==="
+tail -3 "$VSC_DATA/projects/ugatit/logs/gpu_train_full_MIST-HER2_i1M_p1.csv"
+
+echo ""
+echo "MIST part 1 complete (iterations 1-500,000). Part 2 should start automatically if submitted via wrapper."
