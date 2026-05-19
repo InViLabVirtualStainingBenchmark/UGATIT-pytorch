@@ -36,9 +36,15 @@ CONTAINER="$VSC_SCRATCH/containers/ugatit_nvidia.sif"
 REPO_DIR="$VSC_DATA/projects/ugatit/code/ugatit"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/results"
 DATASET="BCI_full_i1M"
-BCI_TEST_SQSH="$VSC_SCRATCH/BCI-AB-test.sqsh"
-BCI_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M"
+BCI_SQSH="$VSC_SCRATCH/BCI-AB.sqsh"
+BCI_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M"
 UGATIT_DATAROOT="$VSC_SCRATCH/sqsh_mnt/ugatit"
+UGATIT_DATA_BINDS=(
+    -B "$BCI_SQSH:$BCI_MNT/trainA:image-src=/trainA"
+    -B "$BCI_SQSH:$BCI_MNT/trainB:image-src=/trainB"
+    -B "$BCI_SQSH:$BCI_MNT/testA:image-src=/valA"
+    -B "$BCI_SQSH:$BCI_MNT/testB:image-src=/valB"
+)
 
 # =========================
 # MODULES
@@ -75,11 +81,15 @@ find "$CKPT_DIR" -name "*.pt" | sort
 
 echo ""
 echo "=== Test dataset check ==="
-mkdir -p "$BCI_TEST_MNT"
+if [ ! -f "$BCI_SQSH" ]; then
+    echo "ERROR: BCI-AB.sqsh not found: $BCI_SQSH"
+    exit 1
+fi
+mkdir -p "$BCI_MNT"/{trainA,trainB,testA,testB}
 apptainer exec \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
-    bash -c "echo \"  testA: \$(ls $BCI_TEST_MNT/testA | wc -l) images\"; echo \"  testB: \$(ls $BCI_TEST_MNT/testB | wc -l) images\""
+    bash -c "echo \"  testA: \$(ls $BCI_MNT/testA | wc -l) images\"; echo \"  testB: \$(ls $BCI_MNT/testB | wc -l) images\""
 
 # =========================
 # GPU LOGGING
@@ -99,11 +109,11 @@ echo ""
 echo "=== Starting BCI inference ==="
 echo "  dataset   : $DATASET"
 echo "  result_dir: $RESULT_DIR"
-echo "  dataroot  : $UGATIT_DATAROOT (inside BCI-AB-test.sqsh mounted as BCI_full_i1M)"
+echo "  dataroot  : $UGATIT_DATAROOT (inside BCI-AB.sqsh mounted as BCI_full_i1M)"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
     python main.py \
         --phase       test \

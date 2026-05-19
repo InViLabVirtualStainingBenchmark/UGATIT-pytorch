@@ -32,9 +32,15 @@ CONTAINER="$VSC_SCRATCH/containers/ugatit_nvidia.sif"
 REPO_DIR="$VSC_DATA/projects/ugatit/code/ugatit"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/results"
 DATASET="BCI_full_i1M"
-BCI_TEST_SQSH="$VSC_SCRATCH/BCI-AB-test.sqsh"
-BCI_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M"
+BCI_SQSH="$VSC_SCRATCH/BCI-AB.sqsh"
+BCI_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M"
 UGATIT_DATAROOT="$VSC_SCRATCH/sqsh_mnt/ugatit"
+UGATIT_DATA_BINDS=(
+    -B "$BCI_SQSH:$BCI_MNT/trainA:image-src=/trainA"
+    -B "$BCI_SQSH:$BCI_MNT/trainB:image-src=/trainB"
+    -B "$BCI_SQSH:$BCI_MNT/testA:image-src=/valA"
+    -B "$BCI_SQSH:$BCI_MNT/testB:image-src=/valB"
+)
 
 # =========================
 # MODULES
@@ -60,19 +66,19 @@ apptainer exec --nv "$CONTAINER" python -c "import torch; print('torch:', torch.
 
 echo ""
 echo "=== SquashFS check ==="
-if [ ! -f "$BCI_TEST_SQSH" ]; then
-    echo "ERROR: BCI-AB-test.sqsh not found: $BCI_TEST_SQSH"
+if [ ! -f "$BCI_SQSH" ]; then
+    echo "ERROR: BCI-AB.sqsh not found: $BCI_SQSH"
     exit 1
 fi
-echo "  BCI-AB-test.sqsh found"
+echo "  BCI-AB.sqsh found"
 
 echo ""
 echo "=== Dataset check ==="
-mkdir -p "$BCI_TEST_MNT"
+mkdir -p "$BCI_MNT"/{trainA,trainB,testA,testB}
 apptainer exec \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
-    bash -c "echo \"  trainA: \$(ls $BCI_TEST_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $BCI_TEST_MNT/trainB | wc -l) images\""
+    bash -c "echo \"  trainA: \$(ls $BCI_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $BCI_MNT/trainB | wc -l) images\"; echo \"  testA:  \$(ls $BCI_MNT/testA  | wc -l) images\"; echo \"  testB:  \$(ls $BCI_MNT/testB  | wc -l) images\""
 
 echo ""
 echo "=== Checkpoint check (part 1 must have completed) ==="
@@ -107,7 +113,7 @@ echo "  result_dir: $RESULT_DIR"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
     python main.py \
         --phase       train \

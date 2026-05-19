@@ -19,7 +19,7 @@
 # order by UGATIT's dataloader (shuffle=False), so fake_B_0001.png corresponds to
 # the first sorted testB image, fake_B_0002.png to the second, etc.
 #
-# GT images come from testB inside BCI-AB-test.sqsh mounted as BCI_full_i1M.
+# GT images come from valB inside BCI-AB.sqsh, bound as testB for UGATIT.
 # Predictions come from the inference output folder (on $VSC_DATA, no sqsh needed).
 #
 # Submit ONLY after infer_BCI_i1M.sh has completed and image count is 977.
@@ -34,9 +34,10 @@ EVAL_CONTAINER="$VSC_SCRATCH/containers/evaluate_nvidia.sif"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/results"
 DATASET="BCI_full_i1M"
 PRED_DIR="$RESULT_DIR/$DATASET/test"
-BCI_TEST_SQSH="$VSC_SCRATCH/BCI-AB-test.sqsh"
-BCI_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M"
-GT_DIR="$BCI_TEST_MNT/testB"
+BCI_SQSH="$VSC_SCRATCH/BCI-AB.sqsh"
+BCI_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M"
+GT_DIR="$BCI_MNT/testB"
+UGATIT_GT_BIND=(-B "$BCI_SQSH:$BCI_MNT/testB:image-src=/valB")
 
 # =========================
 # MODULES
@@ -58,11 +59,11 @@ echo "  found"
 
 echo ""
 echo "=== SquashFS check ==="
-if [ ! -f "$BCI_TEST_SQSH" ]; then
-    echo "ERROR: BCI-AB-test.sqsh not found: $BCI_TEST_SQSH"
+if [ ! -f "$BCI_SQSH" ]; then
+    echo "ERROR: BCI-AB.sqsh not found: $BCI_SQSH"
     exit 1
 fi
-echo "  BCI-AB-test.sqsh found"
+echo "  BCI-AB.sqsh found"
 
 echo ""
 echo "=== Prediction folder check ==="
@@ -77,16 +78,16 @@ echo "  fake_B images: $(find "$PRED_DIR" -name "*.png" | wc -l)"
 # EVALUATION
 # =========================
 
-mkdir -p "$BCI_TEST_MNT"
+mkdir -p "$BCI_MNT/testB"
 
 echo ""
 echo "=== Starting BCI evaluation ==="
 echo "  predictions : $PRED_DIR"
-echo "  ground truth: $GT_DIR (inside BCI-AB-test.sqsh mounted as BCI_full_i1M)"
+echo "  ground truth: $GT_DIR (valB inside BCI-AB.sqsh)"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_GT_BIND[@]}" \
     "$EVAL_CONTAINER" \
     python "$VSC_DATA/evaluate/evaluate.py" \
         --pred           "$PRED_DIR" \

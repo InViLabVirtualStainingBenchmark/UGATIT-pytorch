@@ -16,23 +16,16 @@
 # This job must pass before submitting the full 1M-iteration training jobs.
 #
 # UGATIT hardcodes testA/testB in its dataloader. BCI-AB.sqsh uses valA/valB,
-# so a derived archive (BCI-AB-test.sqsh) is required with the splits renamed.
+# so this script binds valA/valB from the real archive as testA/testB.
 #
 # PREREQUISITES -- run ONCE on the login node before submitting this job:
 #
-# 1. Create BCI-AB-test.sqsh (rename valA/valB -> testA/testB):
-#      unsquashfs -d $VSC_SCRATCH/tmp_bci_test $VSC_SCRATCH/BCI-AB.sqsh
-#      mv $VSC_SCRATCH/tmp_bci_test/valA $VSC_SCRATCH/tmp_bci_test/testA
-#      mv $VSC_SCRATCH/tmp_bci_test/valB $VSC_SCRATCH/tmp_bci_test/testB
-#      mksquashfs $VSC_SCRATCH/tmp_bci_test $VSC_SCRATCH/BCI-AB-test.sqsh -noappend
-#      rm -rf $VSC_SCRATCH/tmp_bci_test
-#
-# 2. Create project directories and clone the fork:
+# 1. Create project directories and clone the fork:
 #      mkdir -p $VSC_DATA/projects/ugatit/{logs,outputs/results,outputs/validate}
 #      git clone https://github.com/InViLabVirtualStainingBenchmark/UGATIT-pytorch \
 #          $VSC_DATA/projects/ugatit/code/ugatit
 #
-# 3. Upload the container:
+# 2. Upload the container:
 #      rsync -avz ugatit_nvidia.sif vsc21212@login.hpc.uantwerpen.be:$VSC_SCRATCH/containers/
 #
 # Submit: sbatch train_validate_BCI_i200.sh
@@ -53,9 +46,15 @@ CONTAINER="$VSC_SCRATCH/containers/ugatit_nvidia.sif"
 REPO_DIR="$VSC_DATA/projects/ugatit/code/ugatit"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/validate"
 DATASET="BCI_validate_i200"
-BCI_TEST_SQSH="$VSC_SCRATCH/BCI-AB-test.sqsh"
-BCI_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_validate_i200"
+BCI_SQSH="$VSC_SCRATCH/BCI-AB.sqsh"
+BCI_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_validate_i200"
 UGATIT_DATAROOT="$VSC_SCRATCH/sqsh_mnt/ugatit"
+UGATIT_DATA_BINDS=(
+    -B "$BCI_SQSH:$BCI_MNT/trainA:image-src=/trainA"
+    -B "$BCI_SQSH:$BCI_MNT/trainB:image-src=/trainB"
+    -B "$BCI_SQSH:$BCI_MNT/testA:image-src=/valA"
+    -B "$BCI_SQSH:$BCI_MNT/testB:image-src=/valB"
+)
 
 # =========================
 # MODULES
@@ -81,20 +80,19 @@ apptainer exec --nv "$CONTAINER" python -c "import torch; print('torch:', torch.
 
 echo ""
 echo "=== SquashFS check ==="
-if [ ! -f "$BCI_TEST_SQSH" ]; then
-    echo "ERROR: BCI-AB-test.sqsh not found: $BCI_TEST_SQSH"
-    echo "See PREREQUISITES at the top of this script."
+if [ ! -f "$BCI_SQSH" ]; then
+    echo "ERROR: BCI-AB.sqsh not found: $BCI_SQSH"
     exit 1
 fi
-echo "  BCI-AB-test.sqsh found"
+echo "  BCI-AB.sqsh found"
 
 echo ""
 echo "=== Dataset check ==="
-mkdir -p "$BCI_TEST_MNT"
+mkdir -p "$BCI_MNT"/{trainA,trainB,testA,testB}
 apptainer exec \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
-    bash -c "echo \"  trainA: \$(ls $BCI_TEST_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $BCI_TEST_MNT/trainB | wc -l) images\"; echo \"  testA:  \$(ls $BCI_TEST_MNT/testA  | wc -l) images\"; echo \"  testB:  \$(ls $BCI_TEST_MNT/testB  | wc -l) images\""
+    bash -c "echo \"  trainA: \$(ls $BCI_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $BCI_MNT/trainB | wc -l) images\"; echo \"  testA:  \$(ls $BCI_MNT/testA  | wc -l) images\"; echo \"  testB:  \$(ls $BCI_MNT/testB  | wc -l) images\""
 
 echo ""
 echo "=== Repo check ==="
@@ -123,12 +121,12 @@ cd "$REPO_DIR"
 echo ""
 echo "=== Starting BCI validate training (200 iterations) ==="
 echo "  dataset   : $DATASET"
-echo "  dataroot  : $UGATIT_DATAROOT (BCI-AB-test mounted inside)"
+echo "  dataroot  : $UGATIT_DATAROOT (BCI-AB.sqsh mounted inside)"
 echo "  result_dir: $RESULT_DIR"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$BCI_TEST_SQSH:$BCI_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
     python main.py \
         --phase       train \

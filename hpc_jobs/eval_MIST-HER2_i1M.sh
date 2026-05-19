@@ -19,7 +19,7 @@
 # order by UGATIT's dataloader (shuffle=False), so fake_B_0001.png corresponds to
 # the first sorted testB image, fake_B_0002.png to the second, etc.
 #
-# GT images come from testB inside MIST-HER2-test.sqsh mounted as MIST-HER2_full_i1M.
+# GT images come from valB inside MIST-HER2.sqsh, bound as testB for UGATIT.
 # Predictions come from the inference output folder (on $VSC_DATA, no sqsh needed).
 #
 # Submit ONLY after infer_MIST-HER2_i1M.sh has completed and image count is 1000.
@@ -34,9 +34,10 @@ EVAL_CONTAINER="$VSC_SCRATCH/containers/evaluate_nvidia.sif"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/results"
 DATASET="MIST-HER2_full_i1M"
 PRED_DIR="$RESULT_DIR/$DATASET/test"
-MIST_TEST_SQSH="$VSC_SCRATCH/MIST-HER2-test.sqsh"
-MIST_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_full_i1M"
-GT_DIR="$MIST_TEST_MNT/testB"
+MIST_SQSH="$VSC_SCRATCH/MIST-HER2.sqsh"
+MIST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_full_i1M"
+GT_DIR="$MIST_MNT/testB"
+UGATIT_GT_BIND=(-B "$MIST_SQSH:$MIST_MNT/testB:image-src=/valB")
 
 # =========================
 # MODULES
@@ -58,11 +59,11 @@ echo "  found"
 
 echo ""
 echo "=== SquashFS check ==="
-if [ ! -f "$MIST_TEST_SQSH" ]; then
-    echo "ERROR: MIST-HER2-test.sqsh not found: $MIST_TEST_SQSH"
+if [ ! -f "$MIST_SQSH" ]; then
+    echo "ERROR: MIST-HER2.sqsh not found: $MIST_SQSH"
     exit 1
 fi
-echo "  MIST-HER2-test.sqsh found"
+echo "  MIST-HER2.sqsh found"
 
 echo ""
 echo "=== Prediction folder check ==="
@@ -77,16 +78,16 @@ echo "  fake_B images: $(find "$PRED_DIR" -name "*.png" | wc -l)"
 # EVALUATION
 # =========================
 
-mkdir -p "$MIST_TEST_MNT"
+mkdir -p "$MIST_MNT/testB"
 
 echo ""
 echo "=== Starting MIST evaluation ==="
 echo "  predictions : $PRED_DIR"
-echo "  ground truth: $GT_DIR (inside MIST-HER2-test.sqsh mounted as MIST-HER2_full_i1M)"
+echo "  ground truth: $GT_DIR (valB inside MIST-HER2.sqsh)"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "${UGATIT_GT_BIND[@]}" \
     "$EVAL_CONTAINER" \
     python "$VSC_DATA/evaluate/evaluate.py" \
         --pred           "$PRED_DIR" \

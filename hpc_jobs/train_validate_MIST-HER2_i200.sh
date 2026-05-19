@@ -15,16 +15,11 @@
 # Runs 200 iterations of UGATIT training on MIST-HER2 as a cluster confirmation gate.
 # This job must pass before submitting the full 1M-iteration training jobs.
 #
-# PREREQUISITES -- run ONCE on the login node before submitting this job:
+# UGATIT hardcodes testA/testB in its dataloader. MIST-HER2.sqsh uses valA/valB,
+# so this script binds valA/valB from the real archive as testA/testB.
 #
-# 1. Create MIST-HER2-test.sqsh (rename valA/valB -> testA/testB):
-#      unsquashfs -d $VSC_SCRATCH/tmp_mist_test $VSC_SCRATCH/MIST-HER2.sqsh
-#      mv $VSC_SCRATCH/tmp_mist_test/valA $VSC_SCRATCH/tmp_mist_test/testA
-#      mv $VSC_SCRATCH/tmp_mist_test/valB $VSC_SCRATCH/tmp_mist_test/testB
-#      mksquashfs $VSC_SCRATCH/tmp_mist_test $VSC_SCRATCH/MIST-HER2-test.sqsh -noappend
-#      rm -rf $VSC_SCRATCH/tmp_mist_test
-#
-# 2. See train_validate_BCI_i200.sh for the one-time container/repo/directory setup.
+# PREREQUISITES -- see train_validate_BCI_i200.sh for the one-time
+# container/repo/directory setup.
 #
 # Submit: sbatch train_validate_MIST-HER2_i200.sh
 #
@@ -43,9 +38,15 @@ CONTAINER="$VSC_SCRATCH/containers/ugatit_nvidia.sif"
 REPO_DIR="$VSC_DATA/projects/ugatit/code/ugatit"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/validate"
 DATASET="MIST-HER2_validate_i200"
-MIST_TEST_SQSH="$VSC_SCRATCH/MIST-HER2-test.sqsh"
-MIST_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_validate_i200"
+MIST_SQSH="$VSC_SCRATCH/MIST-HER2.sqsh"
+MIST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_validate_i200"
 UGATIT_DATAROOT="$VSC_SCRATCH/sqsh_mnt/ugatit"
+UGATIT_DATA_BINDS=(
+    -B "$MIST_SQSH:$MIST_MNT/trainA:image-src=/trainA"
+    -B "$MIST_SQSH:$MIST_MNT/trainB:image-src=/trainB"
+    -B "$MIST_SQSH:$MIST_MNT/testA:image-src=/valA"
+    -B "$MIST_SQSH:$MIST_MNT/testB:image-src=/valB"
+)
 
 # =========================
 # MODULES
@@ -71,20 +72,19 @@ apptainer exec --nv "$CONTAINER" python -c "import torch; print('torch:', torch.
 
 echo ""
 echo "=== SquashFS check ==="
-if [ ! -f "$MIST_TEST_SQSH" ]; then
-    echo "ERROR: MIST-HER2-test.sqsh not found: $MIST_TEST_SQSH"
-    echo "See PREREQUISITES at the top of this script."
+if [ ! -f "$MIST_SQSH" ]; then
+    echo "ERROR: MIST-HER2.sqsh not found: $MIST_SQSH"
     exit 1
 fi
-echo "  MIST-HER2-test.sqsh found"
+echo "  MIST-HER2.sqsh found"
 
 echo ""
 echo "=== Dataset check ==="
-mkdir -p "$MIST_TEST_MNT"
+mkdir -p "$MIST_MNT"/{trainA,trainB,testA,testB}
 apptainer exec \
-    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
-    bash -c "echo \"  trainA: \$(ls $MIST_TEST_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $MIST_TEST_MNT/trainB | wc -l) images\"; echo \"  testA:  \$(ls $MIST_TEST_MNT/testA  | wc -l) images\"; echo \"  testB:  \$(ls $MIST_TEST_MNT/testB  | wc -l) images\""
+    bash -c "echo \"  trainA: \$(ls $MIST_MNT/trainA | wc -l) images\"; echo \"  trainB: \$(ls $MIST_MNT/trainB | wc -l) images\"; echo \"  testA:  \$(ls $MIST_MNT/testA  | wc -l) images\"; echo \"  testB:  \$(ls $MIST_MNT/testB  | wc -l) images\""
 
 echo ""
 echo "=== Repo check ==="
@@ -113,12 +113,12 @@ cd "$REPO_DIR"
 echo ""
 echo "=== Starting MIST validate training (200 iterations) ==="
 echo "  dataset   : $DATASET"
-echo "  dataroot  : $UGATIT_DATAROOT (MIST-HER2-test mounted inside)"
+echo "  dataroot  : $UGATIT_DATAROOT (MIST-HER2.sqsh mounted inside)"
 echo "  result_dir: $RESULT_DIR"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
     python main.py \
         --phase       train \

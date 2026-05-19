@@ -36,9 +36,15 @@ CONTAINER="$VSC_SCRATCH/containers/ugatit_nvidia.sif"
 REPO_DIR="$VSC_DATA/projects/ugatit/code/ugatit"
 RESULT_DIR="$VSC_DATA/projects/ugatit/outputs/results"
 DATASET="MIST-HER2_full_i1M"
-MIST_TEST_SQSH="$VSC_SCRATCH/MIST-HER2-test.sqsh"
-MIST_TEST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_full_i1M"
+MIST_SQSH="$VSC_SCRATCH/MIST-HER2.sqsh"
+MIST_MNT="$VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_full_i1M"
 UGATIT_DATAROOT="$VSC_SCRATCH/sqsh_mnt/ugatit"
+UGATIT_DATA_BINDS=(
+    -B "$MIST_SQSH:$MIST_MNT/trainA:image-src=/trainA"
+    -B "$MIST_SQSH:$MIST_MNT/trainB:image-src=/trainB"
+    -B "$MIST_SQSH:$MIST_MNT/testA:image-src=/valA"
+    -B "$MIST_SQSH:$MIST_MNT/testB:image-src=/valB"
+)
 
 # =========================
 # MODULES
@@ -75,11 +81,15 @@ find "$CKPT_DIR" -name "*.pt" | sort
 
 echo ""
 echo "=== Test dataset check ==="
-mkdir -p "$MIST_TEST_MNT"
+if [ ! -f "$MIST_SQSH" ]; then
+    echo "ERROR: MIST-HER2.sqsh not found: $MIST_SQSH"
+    exit 1
+fi
+mkdir -p "$MIST_MNT"/{trainA,trainB,testA,testB}
 apptainer exec \
-    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
-    bash -c "echo \"  testA: \$(ls $MIST_TEST_MNT/testA | wc -l) images\"; echo \"  testB: \$(ls $MIST_TEST_MNT/testB | wc -l) images\""
+    bash -c "echo \"  testA: \$(ls $MIST_MNT/testA | wc -l) images\"; echo \"  testB: \$(ls $MIST_MNT/testB | wc -l) images\""
 
 # =========================
 # GPU LOGGING
@@ -99,11 +109,11 @@ echo ""
 echo "=== Starting MIST inference ==="
 echo "  dataset   : $DATASET"
 echo "  result_dir: $RESULT_DIR"
-echo "  dataroot  : $UGATIT_DATAROOT (inside MIST-HER2-test.sqsh mounted as MIST-HER2_full_i1M)"
+echo "  dataroot  : $UGATIT_DATAROOT (inside MIST-HER2.sqsh mounted as MIST-HER2_full_i1M)"
 
 srun apptainer exec --nv \
     -B "$VSC_DATA:$VSC_DATA" \
-    -B "$MIST_TEST_SQSH:$MIST_TEST_MNT:image-src=/" \
+    "${UGATIT_DATA_BINDS[@]}" \
     "$CONTAINER" \
     python main.py \
         --phase       test \

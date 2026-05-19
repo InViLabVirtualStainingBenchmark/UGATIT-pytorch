@@ -8,7 +8,7 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
     rm -rf /var/lib/apt/lists/*
 
     # Placeholder dirs (masked by cluster /data bind at runtime; kept for convention).
-    mkdir -p /data/BCI-AB-test /data/MIST-HER2-test
+    mkdir -p /data/BCI-AB /data/MIST-HER2
 
     pip install --no-cache-dir --upgrade pip
 
@@ -32,36 +32,40 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
     Python 3.11, PyTorch 2.5.1 (cu121), CUDA 12.1 runtime.
     The cluster CUDA 12.x driver is backward compatible with this runtime.
 
-    UGATIT hardcodes testA/testB folder names in build_model(). Because
-    BCI-AB.sqsh and MIST-HER2.sqsh use valA/valB, UGATIT requires dedicated
-    sqsh archives where the inference split is named testA/testB:
-      BCI-AB-test.sqsh   -- trainA, trainB, testA, testB  (testA/B = valA/B from BCI-AB.sqsh)
-      MIST-HER2-test.sqsh -- trainA, trainB, testA, testB  (testA/B = valA/B from MIST-HER2.sqsh)
-    See train_validate_BCI.sh for one-time creation commands on the login node.
+    UGATIT hardcodes testA/testB folder names in build_model(). BCI-AB.sqsh
+    and MIST-HER2.sqsh use valA/valB, so the HPC scripts bind valA and valB
+    from the real archives into per-run testA and testB mount directories.
 
     Mount path convention:
-      $VSC_SCRATCH/BCI-AB-test.sqsh  -> $VSC_SCRATCH/sqsh_mnt/ugatit/BCI-AB-test
-      $VSC_SCRATCH/MIST-HER2-test.sqsh -> $VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2-test
+      $VSC_SCRATCH/BCI-AB.sqsh trainA -> $VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/trainA
+      $VSC_SCRATCH/BCI-AB.sqsh valA   -> $VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/testA
+      $VSC_SCRATCH/MIST-HER2.sqsh valB -> $VSC_SCRATCH/sqsh_mnt/ugatit/MIST-HER2_full_i1M/testB
 
     UGATIT args (BCI example):
       --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit   (parent of the dataset folder)
-      --dataset  BCI-AB-test
+      --dataset  BCI_full_i1M
 
     Training (BCI, part 1 -- 500k iterations, no LR decay):
       srun apptainer exec --nv \
         -B $VSC_DATA:$VSC_DATA \
-        -B $VSC_SCRATCH/BCI-AB-test.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI-AB-test:image-src=/ \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/trainA:image-src=/trainA \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/trainB:image-src=/trainB \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/testA:image-src=/valA \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/testB:image-src=/valB \
         $VSC_SCRATCH/containers/ugatit_nvidia.sif \
         python main.py \
-          --dataset BCI-AB-test --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit \
+          --dataset BCI_full_i1M --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit \
           --light True --img_size 512 --load_size 1024 \
           --iteration 500000 --decay_flag False ...
 
     Inference (BCI):
       srun apptainer exec --nv \
         -B $VSC_DATA:$VSC_DATA \
-        -B $VSC_SCRATCH/BCI-AB-test.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI-AB-test:image-src=/ \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/trainA:image-src=/trainA \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/trainB:image-src=/trainB \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/testA:image-src=/valA \
+        -B $VSC_SCRATCH/BCI-AB.sqsh:$VSC_SCRATCH/sqsh_mnt/ugatit/BCI_full_i1M/testB:image-src=/valB \
         $VSC_SCRATCH/containers/ugatit_nvidia.sif \
         python main.py \
-          --phase test --dataset BCI-AB-test --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit \
+          --phase test --dataset BCI_full_i1M --dataroot $VSC_SCRATCH/sqsh_mnt/ugatit \
           --light True --img_size 512 --load_size 1024 ...
